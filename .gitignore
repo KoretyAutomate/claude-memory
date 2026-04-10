@@ -41,3 +41,6 @@ test_results/
 .pytest_cache/
 htmlcov/
 .coverage
+
+# Local working docs (not shipped to users of the package)
+PLAN.md
