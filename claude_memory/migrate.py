@@ -77,6 +77,7 @@ def migrate(memory_dir: Path | None = None) -> dict:
         description = meta.get("description", "")
         mem_type = meta.get("type", "project")
         priority = meta.get("priority", "normal")
+        project = meta.get("project", "") or None
         created = meta.get("created", "")
         last_verified = meta.get("last_verified", "")
 
@@ -87,6 +88,7 @@ def migrate(memory_dir: Path | None = None) -> dict:
             id=mem_id,
             content=body,
             type=mem_type,
+            project=project,
             priority=priority,
             concepts=concepts,
             source=f"migration:{md_file.name}",
@@ -99,7 +101,7 @@ def migrate(memory_dir: Path | None = None) -> dict:
         if success:
             embed_add(mem_id, body, {
                 "type": mem_type,
-                "project": "",
+                "project": project or "",
                 "priority": priority,
                 "status": "active",
             })
