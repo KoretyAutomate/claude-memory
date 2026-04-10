@@ -119,6 +119,119 @@ claude-memory-migrate /path/to/your/memory/files
 
 The migration parses YAML frontmatter (`name`, `type`, `priority`, `created`, `last_verified`) and imports the body into both SQLite and ChromaDB.
 
+## Auto-Injection (optional)
+
+In addition to the MCP `memory_search` tool that Claude can call on demand,
+claude-memory ships an optional **auto-injection hook**. On every user
+prompt, the hook fetches the top 3 prompt-relevant memories above a
+relevance floor and injects them into the conversation as a
+`<memory-context>` block — Claude no longer has to *remember* to call
+`memory_search`.
+
+**Why both?** The MCP tool is precise but Claude has to know when to reach
+for it. The hook is mechanical and runs every turn, so it catches the
+"Claude didn't know it needed memory" cases. They're complementary, not
+redundant.
+
+### Install the hook
+
+```bash
+claude-memory-install-hook
+```
+
+This writes a small shell shim to `~/.claude-memory/hook/inject.sh` and
+adds a `UserPromptSubmit` entry to `~/.claude/settings.json` (with a
+timestamped backup of the original). The installer is idempotent and
+preserves any existing hooks for other events.
+
+To preview without modifying settings:
+
+```bash
+claude-memory-install-hook --print
+```
+
+To remove the hook entry (the shim is left in place):
+
+```bash
+claude-memory-install-hook --uninstall
+```
+
+### Block format
+
+```
+<memory-context>
+[id | type | last_verified] memory body...
+
+[id | type | last_verified — STALE, verify before acting] older memory body...
+</memory-context>
+```
+
+- Memories with `last_verified` older than 30 days (or NULL) get a STALE
+  marker, reinforcing the rule that Claude should verify memory facts
+  before acting on them.
+- Memories with `last_verified` older than 90 days are hard-excluded.
+- Bodies that exceed the per-entry budget are truncated with a
+  `…[truncated]` marker — Claude still gets the high-relevance signal,
+  just clipped.
+- Memory bodies containing a literal `</memory-context>` are escaped to
+  prevent prompt-injection via the closing tag.
+- If nothing scores above the floor, the hook injects nothing — no
+  empty block, no token cost on irrelevant prompts.
+
+### Kill switches
+
+Three ways to disable injection without uninstalling:
+
+1. **Per-session**: `export CLAUDE_MEMORY_AUTO_INJECT=0`
+2. **Across sessions**: `touch ~/.claude-memory/inject.pause` (delete the
+   file to re-enable)
+3. **Per-prompt**: prefix the prompt with `!nomem` — that single prompt
+   skips injection
+
+### Auto-injection config (env vars)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CLAUDE_MEMORY_AUTO_INJECT` | `1` | Master kill switch (`0` disables) |
+| `CLAUDE_MEMORY_INJECT_BUDGET` | `400` | Total token ceiling for the block |
+| `CLAUDE_MEMORY_INJECT_TOP_N` | `3` | Max memories injected per prompt |
+| `CLAUDE_MEMORY_INJECT_FLOOR` | `0.5` | Minimum score for inclusion |
+| `CLAUDE_MEMORY_INJECT_MAX_AGE_DAYS` | `90` | Hard-exclude memories older than this |
+| `CLAUDE_MEMORY_INJECT_TIMEOUT_MS` | `2000` | Wall-clock watchdog (CLI exits empty past this) |
+| `CLAUDE_MEMORY_INJECT_AUDIT` | `1` | Audit log toggle |
+
+### Audit log
+
+When enabled (default), each invocation appends one JSONL line to
+`~/.claude-memory/inject_audit/YYYY-MM-DD.jsonl`. Each entry records:
+
+- Salted SHA256 of the prompt and cwd (no raw text — the salt lives at
+  `~/.claude-memory/audit_salt` with mode `0600`)
+- Memory IDs and scores that were injected
+- Total tokens, floor used, budget used
+- Outcome: `injected`, `below_floor`, `killed_by_*`, `watchdog_timeout`,
+  `exception`
+
+Use this to measure whether injection is actually helping on your real
+workload — for example, count how often the floor blocks injection vs.
+how often it fires.
+
+### Manual install (alternative)
+
+If you'd rather edit `~/.claude/settings.json` by hand, add this entry
+under `hooks.UserPromptSubmit`:
+
+```json
+{
+  "hooks": [
+    {
+      "type": "command",
+      "command": "/absolute/path/to/claude-memory-inject"
+    }
+  ]
+}
+```
+
 ## MCP Tools
 
 Once registered, Claude Code gets 6 tools:

@@ -35,8 +35,9 @@ class TestShim:
     def test_shim_exits_zero_when_cli_missing(self, fake_home):
         path = hook_install.write_shim()
         content = path.read_text()
-        assert "command -v claude-memory-inject" in content
         assert "exit 0" in content
+        # Either the absolute-path form (CLI=...) or PATH-lookup form must be present.
+        assert ("CLI=" in content) or ("command -v claude-memory-inject" in content)
 
 
 class TestInstall:
