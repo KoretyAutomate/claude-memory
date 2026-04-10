@@ -236,6 +236,67 @@ def get_status() -> dict:
     }
 
 
+def delete_memory(id: str) -> bool:
+    """Permanently delete a memory and its retrieval log / concept edges.
+
+    Returns False if the memory doesn't exist.
+    """
+    conn = _connect()
+    existing = conn.execute("SELECT id FROM memories WHERE id = ?", (id,)).fetchone()
+    if not existing:
+        conn.close()
+        return False
+
+    conn.execute("DELETE FROM retrieval_log WHERE memory_id = ?", (id,))
+    conn.execute("DELETE FROM concept_graph WHERE memory_id = ?", (id,))
+    conn.execute("DELETE FROM memories WHERE id = ?", (id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def export_all(include_archived: bool = True, include_retrieval_log: bool = False) -> dict:
+    """Export all memories (and optionally retrieval log) as a serializable dict.
+
+    The returned dict has keys: `memories`, `exported_at`, `count`, plus
+    `retrieval_log` if requested. Each memory is a plain dict with all columns.
+    """
+    conn = _connect()
+
+    if include_archived:
+        rows = conn.execute("SELECT * FROM memories ORDER BY created").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM memories WHERE status = 'active' ORDER BY created"
+        ).fetchall()
+
+    memories = []
+    for r in rows:
+        mem = dict(r)
+        # Parse JSON fields back to lists for cleaner output
+        for field in ("tags", "concepts"):
+            try:
+                mem[field] = json.loads(mem.get(field) or "[]")
+            except (TypeError, json.JSONDecodeError):
+                mem[field] = []
+        memories.append(mem)
+
+    payload = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "count": len(memories),
+        "memories": memories,
+    }
+
+    if include_retrieval_log:
+        log_rows = conn.execute(
+            "SELECT * FROM retrieval_log ORDER BY timestamp"
+        ).fetchall()
+        payload["retrieval_log"] = [dict(r) for r in log_rows]
+
+    conn.close()
+    return payload
+
+
 def run_decay_sweep() -> dict:
     """Archive memories not accessed in ARCHIVE_AFTER_DAYS (skip pinned)."""
     conn = _connect()

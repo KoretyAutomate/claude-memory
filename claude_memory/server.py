@@ -1,19 +1,26 @@
 """MCP server for Claude Memory.
 
-Exposes 4 tools: memory_search, memory_write, memory_update, memory_status.
+Exposes 6 tools: memory_search, memory_write, memory_update, memory_delete,
+memory_export, memory_status.
 """
 
 import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 from .db import (
-    init_db, insert_memory, update_memory, record_access,
-    get_memory, get_status, run_decay_sweep,
+    init_db, insert_memory, update_memory, delete_memory as db_delete,
+    record_access, get_memory, get_status, run_decay_sweep, export_all,
 )
-from .embeddings import add_memory as embed_add, search as embed_search, count as embed_count
+from .embeddings import (
+    add_memory as embed_add,
+    search as embed_search,
+    count as embed_count,
+    delete_memory as embed_delete,
+)
 from .scoring import compute_score, extract_concepts
 
 
@@ -184,6 +191,59 @@ def memory_update(
         })
 
     return json.dumps({"status": "updated", "id": id})
+
+
+@mcp.tool()
+def memory_delete(id: str) -> str:
+    """Permanently delete a memory from both SQLite and ChromaDB.
+
+    This is irreversible. Prefer memory_update(id, status='archived') if you
+    want to keep the history. Use memory_delete only when the content is
+    genuinely obsolete or wrong.
+
+    Args:
+        id: The memory ID to delete.
+    """
+    ok = db_delete(id)
+    if not ok:
+        return json.dumps({"status": "not_found", "message": f"Memory '{id}' not found."})
+
+    embed_delete(id)
+    return json.dumps({"status": "deleted", "id": id})
+
+
+@mcp.tool()
+def memory_export(
+    output_path: str,
+    include_archived: bool = True,
+    include_retrieval_log: bool = False,
+) -> str:
+    """Dump all memories to a JSON file for backup or migration to another system.
+
+    The file contains: exported_at timestamp, count, memories (full rows with
+    parsed tags/concepts), and optionally retrieval_log.
+
+    Args:
+        output_path: Absolute path where the JSON file will be written.
+        include_archived: If True, include archived memories (default True).
+        include_retrieval_log: If True, include the full retrieval history (default False).
+    """
+    payload = export_all(
+        include_archived=include_archived,
+        include_retrieval_log=include_retrieval_log,
+    )
+
+    path = Path(output_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+
+    return json.dumps({
+        "status": "exported",
+        "path": str(path),
+        "count": payload["count"],
+        "include_archived": include_archived,
+        "include_retrieval_log": include_retrieval_log,
+    })
 
 
 @mcp.tool()

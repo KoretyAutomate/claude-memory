@@ -10,7 +10,16 @@ build/
 # Data (user-specific, never commit)
 data/
 *.db
+*.db-journal
+*.sqlite
+*.sqlite3
 chroma/
+
+# Personal memory files (never commit — defensive in case someone points paths into the repo)
+.claude-memory/
+memory/
+MEMORY.md
+memory_export*.json
 
 # Environment
 .env

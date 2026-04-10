@@ -3,7 +3,7 @@
 from claude_memory.db import (
     init_db, insert_memory, update_memory, get_memory,
     get_all_active, get_status, record_access, run_decay_sweep,
-    content_hash,
+    content_hash, delete_memory, export_all,
 )
 
 
@@ -149,3 +149,93 @@ class TestDecaySweep:
         result = run_decay_sweep()
         mem = get_memory("decay-recent")
         assert mem["status"] == "active"
+
+
+class TestDeleteMemory:
+    def test_deletes_row(self):
+        init_db()
+        insert_memory(id="del-1", content="Delete me")
+        assert get_memory("del-1") is not None
+
+        ok = delete_memory("del-1")
+        assert ok is True
+        assert get_memory("del-1") is None
+
+    def test_returns_false_if_missing(self):
+        init_db()
+        assert delete_memory("never-existed") is False
+
+    def test_also_clears_retrieval_log(self):
+        init_db()
+        insert_memory(id="del-log", content="Has retrieval history")
+        record_access("del-log", "some query", 0.5)
+        record_access("del-log", "another query", 0.7)
+
+        delete_memory("del-log")
+        # Re-insert with same id and verify access_count starts fresh
+        insert_memory(id="del-log", content="Different content for dedupe")
+        mem = get_memory("del-log")
+        assert mem["access_count"] == 0
+
+
+class TestExportAll:
+    def test_basic_export_shape(self):
+        init_db()
+        insert_memory(id="exp-1", content="Exportable one", type="project")
+        insert_memory(
+            id="exp-2",
+            content="Exportable two",
+            type="feedback",
+            tags=["tag-a", "tag-b"],
+            concepts=["concept-x"],
+        )
+
+        payload = export_all()
+        assert "exported_at" in payload
+        assert "count" in payload
+        assert "memories" in payload
+        assert payload["count"] >= 2
+        assert "retrieval_log" not in payload
+
+        ids = [m["id"] for m in payload["memories"]]
+        assert "exp-1" in ids
+        assert "exp-2" in ids
+
+    def test_tags_and_concepts_are_parsed_lists(self):
+        init_db()
+        insert_memory(
+            id="exp-json",
+            content="Parsed JSON fields",
+            tags=["one", "two"],
+            concepts=["alpha", "beta"],
+        )
+        payload = export_all()
+        mem = next(m for m in payload["memories"] if m["id"] == "exp-json")
+        assert mem["tags"] == ["one", "two"]
+        assert mem["concepts"] == ["alpha", "beta"]
+
+    def test_exclude_archived(self):
+        init_db()
+        insert_memory(id="exp-active", content="Still active memory")
+        insert_memory(id="exp-arch", content="Archived memory for export")
+        update_memory("exp-arch", status="archived")
+
+        active_only = export_all(include_archived=False)
+        ids = [m["id"] for m in active_only["memories"]]
+        assert "exp-active" in ids
+        assert "exp-arch" not in ids
+
+        full = export_all(include_archived=True)
+        full_ids = [m["id"] for m in full["memories"]]
+        assert "exp-arch" in full_ids
+
+    def test_include_retrieval_log(self):
+        init_db()
+        insert_memory(id="exp-log", content="Memory with log entries")
+        record_access("exp-log", "q1", 0.4)
+        record_access("exp-log", "q2", 0.9)
+
+        payload = export_all(include_retrieval_log=True)
+        assert "retrieval_log" in payload
+        assert len(payload["retrieval_log"]) >= 2
+        assert any(entry["memory_id"] == "exp-log" for entry in payload["retrieval_log"])

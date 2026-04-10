@@ -121,7 +121,7 @@ The migration parses YAML frontmatter (`name`, `type`, `priority`, `created`, `l
 
 ## MCP Tools
 
-Once registered, Claude Code gets 4 tools:
+Once registered, Claude Code gets 6 tools:
 
 ### `memory_search`
 
@@ -159,6 +159,24 @@ Update an existing memory.
 | `priority` | string | null | New priority |
 | `last_verified` | string | null | Verification date (YYYY-MM-DD) |
 | `status` | string | null | `active` or `archived` |
+
+### `memory_delete`
+
+Permanently remove a memory from both SQLite and ChromaDB. Irreversible -- prefer `memory_update(id, status="archived")` if you want to keep the history.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | string | required | Memory ID to delete |
+
+### `memory_export`
+
+Dump all memories to a JSON file for backup, inspection, or migration to a different memory system.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `output_path` | string | required | Where to write the JSON file |
+| `include_archived` | bool | true | Include archived memories |
+| `include_retrieval_log` | bool | false | Include full retrieval history |
 
 ### `memory_status`
 
