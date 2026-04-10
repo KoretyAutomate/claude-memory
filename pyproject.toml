@@ -37,6 +37,7 @@ Issues = "https://github.com/KoretyAutomate/claude-memory/issues"
 [project.scripts]
 claude-memory-server = "claude_memory.server:main"
 claude-memory-migrate = "claude_memory.migrate:main"
+claude-memory-inject = "claude_memory.inject_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["claude_memory*"]

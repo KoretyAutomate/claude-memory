@@ -141,16 +141,64 @@ def count_tokens(text: str) -> int:
         return max(1, len(text) // 4)
 
 
-def format_memory_entry(mem: dict, stale_days: int = DEFAULT_STALE_DAYS) -> str:
-    """Render a single memory as a block entry with staleness marker."""
+def _render_header(mem: dict, stale_days: int) -> str:
     mem_id = mem.get("id", "?")
     mem_type = mem.get("type") or "unknown"
     last_verified = mem.get("last_verified") or "never"
     stale = _is_stale(mem.get("last_verified"), stale_days)
     marker = " — STALE, verify before acting" if stale else ""
-    header = f"[{mem_id} | {mem_type} | {last_verified}{marker}]"
+    return f"[{mem_id} | {mem_type} | {last_verified}{marker}]"
+
+
+def _truncate_body(body: str, max_body_tokens: int) -> str:
+    """Truncate a body to fit in max_body_tokens, appending a marker."""
+    if max_body_tokens <= 0:
+        return ""
+    marker = " …[truncated]"
+    marker_cost = count_tokens(marker)
+    target = max(0, max_body_tokens - marker_cost)
+    if target <= 0:
+        return ""
+    # Character-based slice sized against the estimated tokens. Over-shoot a
+    # bit then shrink until we fit, so unicode/emoji don't blow the budget.
+    approx_chars = max(1, target * 4)
+    candidate = body[:approx_chars]
+    while candidate and count_tokens(candidate) > target:
+        candidate = candidate[: max(1, int(len(candidate) * 0.9))]
+    if not candidate:
+        return ""
+    return candidate.rstrip() + marker
+
+
+def format_memory_entry(
+    mem: dict,
+    stale_days: int = DEFAULT_STALE_DAYS,
+    max_tokens: int | None = None,
+) -> str:
+    """Render a single memory as a block entry with staleness marker.
+
+    If `max_tokens` is given and the full entry exceeds it, the body is
+    truncated to fit (header is preserved). Returns "" if the header alone
+    already exceeds the budget.
+    """
+    header = _render_header(mem, stale_days)
     body = _escape_block_closer((mem.get("content") or "").strip())
-    return f"{header} {body}"
+    full = f"{header} {body}" if body else header
+
+    if max_tokens is None:
+        return full
+
+    if count_tokens(full) <= max_tokens:
+        return full
+
+    header_tokens = count_tokens(header + " ")
+    if header_tokens >= max_tokens:
+        return ""  # header alone is too big — caller will skip
+
+    truncated = _truncate_body(body, max_tokens - header_tokens)
+    if not truncated:
+        return ""
+    return f"{header} {truncated}"
 
 
 # --------------------------------------------------------------------------- #
@@ -260,6 +308,14 @@ def build_block(
     if not layers or total_budget <= 0:
         return ""
 
+    # Reserve tokens for the wrapper tags and separating newlines so the
+    # total block (including open/close tags) stays within the user-facing
+    # budget.
+    wrapper_overhead = count_tokens(f"{BLOCK_OPEN}\n\n{BLOCK_CLOSE}")
+    effective_budget = total_budget - wrapper_overhead
+    if effective_budget <= 0:
+        return ""
+
     seen: set[str] = set()
     rendered_entries: list[str] = []
     total_used = 0
@@ -271,13 +327,22 @@ def build_block(
             if not mem_id or mem_id in seen:
                 continue
 
-            entry = format_memory_entry(mem, stale_days=stale_days)
-            entry_tokens = count_tokens(entry)
+            # How much budget is available for THIS entry.
+            remaining_layer = layer.budget_tokens - layer_used
+            remaining_total = effective_budget - total_used
+            remaining = min(remaining_layer, remaining_total)
+            if remaining <= 0:
+                continue
 
-            if layer_used + entry_tokens > layer.budget_tokens:
+            entry = format_memory_entry(
+                mem, stale_days=stale_days, max_tokens=remaining
+            )
+            if not entry:
                 continue
-            if total_used + entry_tokens > total_budget:
-                continue
+
+            entry_tokens = count_tokens(entry)
+            if entry_tokens > remaining:
+                continue  # truncation failed to fit — skip
 
             seen.add(mem_id)
             rendered_entries.append(entry)

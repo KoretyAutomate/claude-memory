@@ -284,6 +284,7 @@ class TestBuildBlock:
         assert out.count("duplicate body") == 1
 
     def test_per_layer_budget_caps(self):
+        """The rendered entries' token total must stay within the per-layer cap."""
         big_content = "word " * 200  # ~200 tokens via fallback
         layer = LayerResult(
             name="l2",
@@ -292,25 +293,43 @@ class TestBuildBlock:
                 self._mem("b", big_content),
                 self._mem("c", big_content),
             ],
-            budget_tokens=250,  # only one big memory fits
+            budget_tokens=250,
         )
-        out = build_block([layer], total_budget=1000)
-        # At most one memory should have been rendered
-        assert out.count("[a |") + out.count("[b |") + out.count("[c |") == 1
+        out = build_block([layer], total_budget=10000)
+        # The memories appear at all (possibly truncated) — but total tokens
+        # inside the block body (excluding the open/close tags) don't exceed
+        # the layer budget.
+        body = out[len(BLOCK_OPEN):-len(BLOCK_CLOSE)].strip()
+        assert count_tokens(body) <= 250
 
     def test_total_budget_caps(self):
+        """The total block size must stay within the total_budget."""
         content = "word " * 80  # ~100 tokens
         layer = LayerResult(
             name="l2",
             memories=[
                 self._mem(f"m{i}", content) for i in range(5)
             ],
-            budget_tokens=1000,  # per-layer is permissive
+            budget_tokens=10000,  # per-layer is permissive
         )
         out = build_block([layer], total_budget=150)
-        # Only one memory fits within 150 total
-        rendered = sum(f"[m{i} |" in out for i in range(5))
-        assert rendered == 1
+        body = out[len(BLOCK_OPEN):-len(BLOCK_CLOSE)].strip()
+        assert count_tokens(body) <= 150
+
+    def test_truncation_fits_oversized_top_hit(self):
+        """Oversized top-hit memory is truncated to fit, not skipped entirely."""
+        huge = "word " * 500  # way over any reasonable per-memory budget
+        layer = LayerResult(
+            name="l2",
+            memories=[self._mem("big", huge)],
+            budget_tokens=300,
+        )
+        out = build_block([layer], total_budget=300)
+        assert out != "", "truncation should allow oversized memory to render"
+        assert "[big |" in out
+        assert "…[truncated]" in out
+        body = out[len(BLOCK_OPEN):-len(BLOCK_CLOSE)].strip()
+        assert count_tokens(body) <= 300
 
     def test_stale_marker_in_block(self):
         layer = LayerResult(
