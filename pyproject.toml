@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-memory"
+version = "0.1.0"
+description = "Semantic memory system for Claude Code via MCP"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    {name = "KoretyAutomate"},
+]
+keywords = ["claude", "mcp", "memory", "semantic-search", "chromadb"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+
+dependencies = [
+    "chromadb>=1.0.0",
+    "mcp>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/KoretyAutomate/claude-memory"
+Repository = "https://github.com/KoretyAutomate/claude-memory"
+Issues = "https://github.com/KoretyAutomate/claude-memory/issues"
+
+[project.scripts]
+claude-memory-server = "claude_memory.server:main"
+claude-memory-migrate = "claude_memory.migrate:main"
+
+[tool.setuptools.packages.find]
+include = ["claude_memory*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
