@@ -2,7 +2,7 @@
 
 Semantic memory system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via MCP (Model Context Protocol).
 
-Gives Claude Code persistent, cross-session memory with **semantic search**, **frequency-based scoring**, **automatic decay**, and **concept extraction** -- in ~600 lines of Python.
+Gives Claude Code persistent, cross-session memory with **semantic search**, **frequency-based scoring**, **automatic decay**, and **concept extraction** -- in under 1k lines of Python.
 
 ## Why This Exists
 
